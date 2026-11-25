@@ -6,6 +6,7 @@ import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
+    base: '/aomailonghw/',
     plugins: [
       react(),
       tailwindcss(),
@@ -20,7 +21,7 @@ export default defineConfig(() => {
           'push-sw.js',
         ],
         manifest: {
-          id: '/',
+          id: '/aomailonghw/',
           name: 'ระบบจัดการการบ้าน (Homework Manager)',
           short_name: 'การบ้าน',
           description:
@@ -28,23 +29,23 @@ export default defineConfig(() => {
           theme_color: '#0ea5e9',
           background_color: '#f8fafc',
           display: 'standalone',
-          start_url: '/',
-          scope: '/',
+          start_url: '/aomailonghw/',
+          scope: '/aomailonghw/',
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: '/aomailonghw/pwa-192x192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-512x512.png',
+              src: '/aomailonghw/pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-maskable-512x512.png',
+              src: '/aomailonghw/pwa-maskable-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
@@ -52,7 +53,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
-          importScripts: ['/push-sw.js'],
+          importScripts: ['/aomailonghw/push-sw.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           runtimeCaching: [
