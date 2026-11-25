@@ -15,7 +15,7 @@ import {
   getDocFromServer
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { Homework, CalendarEvent, ExamSchedule, UserProfile, SiteSettings, PRNewsItem, Friend, FriendRequest, TodoItem } from '../types';
+import { Homework, CalendarEvent, ExamSchedule, UserProfile, SiteSettings, PRNewsItem, Friend, FriendRequest, TodoItem, NotificationPreferences } from '../types';
 
 // Initialize Firebase App
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
@@ -555,6 +555,8 @@ export function subscribeToUserHomeworks(
             sharedAt: data.sharedBy.sharedAt || new Date().toISOString(),
           } : undefined,
           originalHomeworkId: data.originalHomeworkId || undefined,
+          customReminders: Array.isArray(data.customReminders) ? data.customReminders : undefined,
+          muteNotifications: Boolean(data.muteNotifications),
         } as Homework;
       });
 
@@ -1507,4 +1509,70 @@ export async function shareMultipleHomeworksWithFriends({
     homeworkSubjects: Array.from(sharedSubjects),
   };
 }
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  enabled: false,
+  rules: [
+    { id: 'rule_1d', days: 1, hours: 0, minutes: 0, enabled: true, label: 'ล่วงหน้า 1 วัน' },
+    { id: 'rule_3h', days: 0, hours: 3, minutes: 0, enabled: true, label: 'ล่วงหน้า 3 ชั่วโมง' },
+    { id: 'rule_1h', days: 0, hours: 1, minutes: 0, enabled: false, label: 'ล่วงหน้า 1 ชั่วโมง' },
+  ],
+  defaultDueTime: '20:00',
+  notifyHomeworks: true,
+  notifyExams: true,
+  notifyTodos: false,
+  timezoneOffsetMinutes: typeof Date !== 'undefined' ? new Date().getTimezoneOffset() : -420,
+  updatedAt: new Date().toISOString(),
+};
+
+/**
+ * Save user notification preferences to Firestore (users/{userId}/settings/notifications)
+ */
+export async function saveNotificationPrefsToCloud(
+  userId: string,
+  prefs: NotificationPreferences
+): Promise<void> {
+  if (!userId) return;
+  const docRef = doc(db, 'users', userId, 'settings', 'notifications');
+  const payload = JSON.parse(
+    JSON.stringify({
+      ...prefs,
+      updatedAt: new Date().toISOString(),
+    })
+  );
+  await setDoc(docRef, payload, { merge: true });
+}
+
+/**
+ * Subscribe to user notification preferences in Firestore
+ */
+export function subscribeToNotificationPrefs(
+  userId: string,
+  onUpdate: (prefs: NotificationPreferences) => void
+) {
+  if (!userId) return () => {};
+  const docRef = doc(db, 'users', userId, 'settings', 'notifications');
+  return onSnapshot(
+    docRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        onUpdate({
+          ...DEFAULT_NOTIFICATION_PREFERENCES,
+          ...data,
+          rules: Array.isArray(data.rules) ? data.rules : DEFAULT_NOTIFICATION_PREFERENCES.rules,
+        } as NotificationPreferences);
+      } else {
+        onUpdate({
+          ...DEFAULT_NOTIFICATION_PREFERENCES,
+          timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+        });
+      }
+    },
+    (err) => {
+      console.warn('Notification prefs sync notice:', err);
+    }
+  );
+}
+
 

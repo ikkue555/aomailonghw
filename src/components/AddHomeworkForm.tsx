@@ -15,10 +15,13 @@ import {
   Trash2,
   Image as ImageIcon,
   UploadCloud,
-  XCircle
+  XCircle,
+  Bell,
+  BellOff
 } from 'lucide-react';
-import { Homework, WorkType, Priority, SiteSettings } from '../types';
+import { Homework, WorkType, Priority, SiteSettings, ReminderRule } from '../types';
 import { FormattedDescription } from './FormattedDescription';
+import { formatRuleLabel } from '../lib/pushClient';
 
 interface AddHomeworkFormProps {
   onSave: (homework: Omit<Homework, 'id' | 'createdAt'>, existingId?: string) => void;
@@ -117,6 +120,15 @@ export const AddHomeworkForm: React.FC<AddHomeworkFormProps> = ({
   // Member names for group work
   const [members, setMembers] = useState<string[]>(['']);
 
+  // Per-homework Web Push reminder customization
+  const [reminderMode, setReminderMode] = useState<'default' | 'custom' | 'mute'>('default');
+  const [customReminders, setCustomReminders] = useState<ReminderRule[]>([
+    { id: 'hw_1d', days: 1, hours: 0, minutes: 0, enabled: true, label: 'ก่อนส่ง 1 วัน' },
+  ]);
+  const [ruleDays, setRuleDays] = useState(1);
+  const [ruleHours, setRuleHours] = useState(0);
+  const [ruleMinutes, setRuleMinutes] = useState(0);
+
   // Populate form if editing
   useEffect(() => {
     if (editingHomework) {
@@ -146,6 +158,17 @@ export const AddHomeworkForm: React.FC<AddHomeworkFormProps> = ({
       setProgress(editingHomework.progress || 0);
       setPriority(editingHomework.priority || 'ปกติ');
       setMembers(editingHomework.members && editingHomework.members.length > 0 ? editingHomework.members : ['']);
+
+      if (editingHomework.muteNotifications) {
+        setReminderMode('mute');
+        setCustomReminders([{ id: 'hw_1d', days: 1, hours: 0, minutes: 0, enabled: true, label: 'ก่อนส่ง 1 วัน' }]);
+      } else if (editingHomework.customReminders && editingHomework.customReminders.length > 0) {
+        setReminderMode('custom');
+        setCustomReminders(editingHomework.customReminders);
+      } else {
+        setReminderMode('default');
+        setCustomReminders([{ id: 'hw_1d', days: 1, hours: 0, minutes: 0, enabled: true, label: 'ก่อนส่ง 1 วัน' }]);
+      }
     } else {
       // Set default due date to tomorrow
       const tomorrow = new Date();
@@ -157,6 +180,8 @@ export const AddHomeworkForm: React.FC<AddHomeworkFormProps> = ({
       setTitle('');
       setImageUrl('');
       setImageError('');
+      setReminderMode('default');
+      setCustomReminders([{ id: 'hw_1d', days: 1, hours: 0, minutes: 0, enabled: true, label: 'ก่อนส่ง 1 วัน' }]);
     }
   }, [editingHomework]);
 
@@ -247,6 +272,8 @@ export const AddHomeworkForm: React.FC<AddHomeworkFormProps> = ({
         completedAt: completed ? new Date().toISOString() : undefined,
         members: filteredMembers,
         priority,
+        customReminders: reminderMode === 'custom' ? customReminders : [],
+        muteNotifications: reminderMode === 'mute',
       },
       editingHomework?.id
     );
@@ -391,6 +418,148 @@ export const AddHomeworkForm: React.FC<AddHomeworkFormProps> = ({
             />
           </div>
         </div>
+
+        {/* Per-Homework Web Push Notification Override */}
+        {!hasNoDueDate && (
+          <div className="bg-sky-50/50 dark:bg-slate-850 p-4 rounded-2xl border border-sky-100 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center space-x-1.5">
+                <Bell className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                <span>การแจ้งเตือนล่วงหน้า (Web Push) สำหรับงานนี้</span>
+              </label>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                ปรับเฉพาะงานนี้หรือใช้ค่าเริ่มต้นได้
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setReminderMode('default')}
+                className={`px-3 py-2 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${
+                  reminderMode === 'default'
+                    ? 'bg-sky-600 text-white border-sky-600'
+                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                ใช้ตามตั้งค่าหลัก
+              </button>
+              <button
+                type="button"
+                onClick={() => setReminderMode('custom')}
+                className={`px-3 py-2 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${
+                  reminderMode === 'custom'
+                    ? 'bg-sky-600 text-white border-sky-600'
+                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                กำหนดเวลาเฉพาะงานนี้
+              </button>
+              <button
+                type="button"
+                onClick={() => setReminderMode('mute')}
+                className={`px-3 py-2 rounded-xl border text-xs font-bold transition-colors flex items-center justify-center space-x-1 cursor-pointer ${
+                  reminderMode === 'mute'
+                    ? 'bg-rose-600 text-white border-rose-600'
+                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <BellOff className="w-3.5 h-3.5" />
+                <span>งดแจ้งเตือนงานนี้</span>
+              </button>
+            </div>
+
+            {reminderMode === 'custom' && (
+              <div className="space-y-2.5 pt-1">
+                <div className="space-y-1.5">
+                  {customReminders.map((rule) => (
+                    <div
+                      key={rule.id}
+                      className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs"
+                    >
+                      <span className="font-semibold text-slate-800 dark:text-slate-100">
+                        🔔 {formatRuleLabel(rule)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCustomReminders((prev) => prev.filter((r) => r.id !== rule.id))
+                        }
+                        className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                        title="ลบเวลาแจ้งเตือน"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-16">
+                    <label className="block text-[10px] text-slate-500 dark:text-slate-400 mb-0.5">วัน</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={ruleDays}
+                      onChange={(e) => setRuleDays(Math.max(0, Math.min(30, Number(e.target.value) || 0)))}
+                      className="w-full px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                  <div className="w-16">
+                    <label className="block text-[10px] text-slate-500 dark:text-slate-400 mb-0.5">ชม.</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={23}
+                      value={ruleHours}
+                      onChange={(e) => setRuleHours(Math.max(0, Math.min(23, Number(e.target.value) || 0)))}
+                      className="w-full px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                  <div className="w-16">
+                    <label className="block text-[10px] text-slate-500 dark:text-slate-400 mb-0.5">นาที</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={ruleMinutes}
+                      onChange={(e) => setRuleMinutes(Math.max(0, Math.min(59, Number(e.target.value) || 0)))}
+                      className="w-full px-2 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const exists = customReminders.some(
+                        (r) =>
+                          r.days === ruleDays &&
+                          r.hours === ruleHours &&
+                          (r.minutes || 0) === ruleMinutes
+                      );
+                      if (exists) return;
+                      setCustomReminders((prev) => [
+                        ...prev,
+                        {
+                          id: `hw_rule_${Date.now().toString(36)}`,
+                          days: ruleDays,
+                          hours: ruleHours,
+                          minutes: ruleMinutes,
+                          enabled: true,
+                          label: formatRuleLabel({ days: ruleDays, hours: ruleHours, minutes: ruleMinutes }),
+                        },
+                      ]);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>เพิ่มเวลา</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Priority */}
         <div>

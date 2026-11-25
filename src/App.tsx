@@ -15,7 +15,8 @@ import {
   FriendRequest,
   ExamSchedule,
   TodoItem,
-  TodoItemType
+  TodoItemType,
+  NotificationPreferences
 } from './types';
 import { getInitialThemeMode, applyThemeMode } from './lib/theme';
 import { 
@@ -50,8 +51,18 @@ import {
   saveTodoToCloud,
   deleteTodoFromCloud,
   toggleTodoCompleteInCloud,
-  clearCompletedTodosFromCloud
+  clearCompletedTodosFromCloud,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  subscribeToNotificationPrefs,
+  saveNotificationPrefsToCloud
 } from './lib/firebase';
+import {
+  clearPushSessionToken,
+  ensureActiveSubscriptionSynced,
+  savePushPreferencesToServer,
+  subscribeDeviceToWebPush,
+  syncTasksToPushServer
+} from './lib/pushClient';
 import { loadStoredExams, saveStoredExams } from './data/mockData';
 import { Header } from './components/Header';
 import { StatsOverview } from './components/StatsOverview';
@@ -77,6 +88,7 @@ import { Footer } from './components/Footer';
 import { ScrollInteractiveHelper } from './components/ScrollInteractiveHelper';
 import { ToastContainer } from './components/ToastContainer';
 import { NotificationBellModal } from './components/NotificationBellModal';
+import { NotificationSettingsModal } from './components/NotificationSettingsModal';
 import { SpeedDialFAB } from './components/SpeedDialFAB';
 import { PlusCircle, CheckCircle2, Loader2, Plus } from 'lucide-react';
 
@@ -124,8 +136,13 @@ export default function App() {
   const [isPRPopupOpen, setIsPRPopupOpen] = useState(false);
   const [hasCheckedPopup, setHasCheckedPopup] = useState(false);
 
-  // Notification Bell and Toasts State
+  // Notification Bell, Web Push Settings and Toasts State
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferences>(
+    DEFAULT_NOTIFICATION_PREFERENCES
+  );
+  const [pendingPushHwId, setPendingPushHwId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     try {
@@ -310,6 +327,7 @@ export default function App() {
       setEvents([]);
       setExams([]);
       setTodos([]);
+      setNotificationPrefs(DEFAULT_NOTIFICATION_PREFERENCES);
       setIsHomeworksLoading(false);
       return;
     }
@@ -419,6 +437,13 @@ export default function App() {
       }
     );
 
+    const unsubNotifPrefs = subscribeToNotificationPrefs(
+      userProfile.uid,
+      (prefs) => {
+        setNotificationPrefs(prefs);
+      }
+    );
+
     return () => {
       unsubExams();
       unsubHomeworks();
@@ -426,8 +451,95 @@ export default function App() {
       unsubFriends();
       unsubRequests();
       unsubTodos();
+      unsubNotifPrefs();
     };
   }, [userProfile]);
+
+  // Ensure active Web Push subscription is synced with server & sync tasks in background
+  useEffect(() => {
+    if (!userProfile || !notificationPrefs.enabled) return;
+
+    void ensureActiveSubscriptionSynced(userProfile.uid, notificationPrefs);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void ensureActiveSubscriptionSynced(userProfile.uid, notificationPrefs);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [userProfile, notificationPrefs]);
+
+  useEffect(() => {
+    if (!userProfile || !notificationPrefs.enabled) return;
+
+    const timer = setTimeout(() => {
+      void syncTasksToPushServer(userProfile.uid, {
+        homeworks,
+        exams,
+        todos,
+        preferences: notificationPrefs,
+      }).catch((err) => {
+        console.warn('Background push task sync notice:', err);
+      });
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [userProfile, homeworks, exams, todos, notificationPrefs]);
+
+  // Deep-link handling when opening app from a Web Push notification
+  useEffect(() => {
+    const validTabs = new Set<ActiveTab>([
+      'main',
+      'completed',
+      'overdue',
+      'add',
+      'calendar',
+      'exam',
+      'news',
+      'admin',
+      'todo',
+      'focus',
+    ]);
+
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab') as ActiveTab | null;
+    const hwParam = params.get('hw');
+    if (tabParam && validTabs.has(tabParam)) {
+      setActiveTab(tabParam);
+    }
+    if (hwParam) {
+      setPendingPushHwId(hwParam);
+    }
+    if (tabParam || hwParam) {
+      const cleanUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, '', cleanUrl);
+    }
+
+    if (!('serviceWorker' in navigator)) return;
+    const handleSwMessage = (event: MessageEvent) => {
+      const msg = event.data;
+      if (msg && msg.type === 'PUSH_NOTIFICATION_CLICK') {
+        if (msg.tab && validTabs.has(msg.tab)) {
+          setActiveTab(msg.tab);
+        }
+        if (msg.homeworkId) {
+          setPendingPushHwId(String(msg.homeworkId));
+        }
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingPushHwId || homeworks.length === 0) return;
+    const target = homeworks.find((h) => h.id === pendingPushHwId);
+    if (target) {
+      setSelectedDetailHomework(target);
+      setPendingPushHwId(null);
+    }
+  }, [pendingPushHwId, homeworks]);
 
   // Automatic Due Today & Overdue alert on entry
   useEffect(() => {
@@ -468,8 +580,60 @@ export default function App() {
     }
   }, [homeworks, userProfile, isAuthChecking, addToast]);
 
+  // Update Web Push Notification Preferences (Cloud + Push Server)
+  const handleUpdateNotificationPrefs = async (next: NotificationPreferences) => {
+    setNotificationPrefs(next);
+    if (!userProfile) return;
+    try {
+      await saveNotificationPrefsToCloud(userProfile.uid, next);
+    } catch (err) {
+      console.warn('Failed saving notification prefs to Firestore:', err);
+    }
+    try {
+      await savePushPreferencesToServer(userProfile.uid, next);
+      if (next.enabled) {
+        await syncTasksToPushServer(userProfile.uid, {
+          homeworks,
+          exams,
+          todos,
+          preferences: next,
+        });
+      }
+    } catch (err) {
+      console.warn('Failed syncing notification prefs to server:', err);
+    }
+  };
+
+  // Direct 1-click enable Web Push & trigger browser permission prompt immediately
+  const handleQuickEnablePush = async () => {
+    if (!userProfile) return;
+    try {
+      const nextPrefs: NotificationPreferences = {
+        ...notificationPrefs,
+        enabled: true,
+        timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+        updatedAt: new Date().toISOString(),
+      };
+      await subscribeDeviceToWebPush(userProfile.uid, nextPrefs);
+      await handleUpdateNotificationPrefs(nextPrefs);
+      addToast(
+        'เปิดรับการแจ้งเตือนสำเร็จ! 🔔',
+        'เซิร์ฟเวอร์จะส่งแจ้งเตือนงานอัตโนมัติแม้ปิดหน้าเว็บ',
+        'success',
+        { recordNotification: false }
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'ไม่สามารถเปิดรับแจ้งเตือนได้';
+      addToast('ตั้งค่าการแจ้งเตือน', msg, 'warning', { recordNotification: false, duration: 7000 });
+      setIsNotificationsOpen(false);
+      setIsNotificationSettingsOpen(true);
+    }
+  };
+
   // Handle Logout
   const handleLogout = async () => {
+    clearPushSessionToken();
+    setIsNotificationSettingsOpen(false);
     await logoutUser();
     setUserProfile(null);
     setActiveTab('main');
@@ -1186,6 +1350,24 @@ export default function App() {
         onClearAll={handleClearAllNotifications}
         onDeleteNotification={handleDeleteNotification}
         onNavigateTab={(tab) => setActiveTab(tab)}
+        isPushEnabled={notificationPrefs.enabled}
+        onOpenNotificationSettings={() => setIsNotificationSettingsOpen(true)}
+        onQuickEnablePush={handleQuickEnablePush}
+      />
+
+      {/* Web Push & Automated Reminder Settings Modal */}
+      <NotificationSettingsModal
+        isOpen={isNotificationSettingsOpen}
+        onClose={() => setIsNotificationSettingsOpen(false)}
+        userId={userProfile.uid}
+        preferences={notificationPrefs}
+        onUpdatePreferences={handleUpdateNotificationPrefs}
+        homeworks={homeworks}
+        exams={exams}
+        todos={todos}
+        onNotifyToast={(title, message, type) =>
+          addToast(title, message, type || 'info', { recordNotification: false })
+        }
       />
 
       {/* Global PR Popup Modal (Configured from Admin settings) */}
@@ -1214,6 +1396,8 @@ export default function App() {
         onLogout={handleLogout}
         unreadNotificationsCount={unreadNotificationsCount}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
+        isPushEnabled={notificationPrefs.enabled}
+        onOpenNotificationSettings={() => setIsNotificationSettingsOpen(true)}
         friendsCount={friends.length}
         pendingRequestsCount={incomingFriendRequests.length}
         onOpenFriends={() => handleOpenFriendsModal()}

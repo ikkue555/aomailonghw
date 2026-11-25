@@ -14,6 +14,7 @@ import {
   Menu, 
   X,
   Bell,
+  BellRing,
   Users,
   GraduationCap,
   ChevronRight,
@@ -40,6 +41,8 @@ interface HeaderProps {
   onLogout?: () => void;
   unreadNotificationsCount?: number;
   onOpenNotifications?: () => void;
+  isPushEnabled?: boolean;
+  onOpenNotificationSettings?: () => void;
   friendsCount?: number;
   pendingRequestsCount?: number;
   onOpenFriends?: () => void;
@@ -60,6 +63,8 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   unreadNotificationsCount = 0,
   onOpenNotifications,
+  isPushEnabled = false,
+  onOpenNotificationSettings,
   friendsCount = 0,
   pendingRequestsCount = 0,
   onOpenFriends,
@@ -189,6 +194,32 @@ export const Header: React.FC<HeaderProps> = ({
                   </span>
                 )}
               </button>
+
+              {/* Quick Notification Settings (Web Push) Button */}
+              {onOpenNotificationSettings && (
+                <button
+                  id="header-notification-settings-btn"
+                  onClick={onOpenNotificationSettings}
+                  className={`relative flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-2xl text-xs font-bold cursor-pointer btn-interactive transition-all border ${
+                    isPushEnabled
+                      ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                  }`}
+                  title="ตั้งค่าการแจ้งเตือนอัตโนมัติ (Web Push)"
+                >
+                  {isPushEnabled ? (
+                    <BellRing className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <Bell className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                  )}
+                  <span className="hidden sm:inline">ตั้งค่าแจ้งเตือน</span>
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      isPushEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+                    }`}
+                  />
+                </button>
+              )}
 
               {/* User Avatar Chip next to menu button for quick identification */}
               {userProfile && (
@@ -367,7 +398,7 @@ export const Header: React.FC<HeaderProps> = ({
                           </div>
                           <div className="text-left">
                             <span className="font-heading block">โหมดโฟกัส (Focus Mode)</span>
-                            <span className="text-[9px] text-slate-400 font-normal">เครื่องบิน • รถยนต์ • จับเวลา</span>
+                            <span className="text-[9px] text-slate-400 font-normal">รถยนต์ • จับเวลา</span>
                           </div>
                         </div>
                         <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-2xs">
@@ -550,6 +581,39 @@ export const Header: React.FC<HeaderProps> = ({
                         </button>
                       )}
                     </div>
+
+                    {/* ตั้งค่าการแจ้งเตือนอัตโนมัติ (Web Push) */}
+                    {onOpenNotificationSettings && (
+                      <button
+                        id="menu-btn-notification-settings"
+                        onClick={() => {
+                          onOpenNotificationSettings();
+                          setMenuOpen(false);
+                        }}
+                        className="w-full flex items-center justify-between p-2.5 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-2xl text-xs font-bold btn-interactive border border-slate-200/80 dark:border-slate-800 shadow-2xs"
+                      >
+                        <div className="flex items-center space-x-2.5">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border ${
+                            isPushEnabled
+                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border-emerald-200/80 dark:border-emerald-800'
+                              : 'bg-sky-100 dark:bg-sky-950 text-sky-600 dark:text-sky-400 border-sky-200/80 dark:border-sky-800'
+                          }`}>
+                            <BellRing className="w-4 h-4" />
+                          </div>
+                          <div className="text-left">
+                            <span className="font-heading block">ตั้งค่าการแจ้งเตือน (Web Push)</span>
+                            <span className="text-[10px] text-slate-400 font-normal">แจ้งเตือนอัตโนมัติ iOS & Android</span>
+                          </div>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${
+                          isPushEnabled
+                            ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                        }`}>
+                          {isPushEnabled ? 'เปิดอยู่' : 'ปิดอยู่'}
+                        </span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Group 4: การตั้งค่า & ระบบผู้ดูแล (Settings & Admin) */}

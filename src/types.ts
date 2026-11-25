@@ -39,6 +39,9 @@ export interface Homework {
   createdAt: string;
   sharedBy?: SharedByInfo;   // ข้อมูลผู้แชร์การบ้านมา (ถ้ามี)
   originalHomeworkId?: string; // ID ต้นทางของการบ้านที่ถูกแชร์
+  customReminders?: ReminderRule[]; // ตั้งเวลาแจ้งเตือนเฉพาะงานนี้
+  muteNotifications?: boolean; // ปิดแจ้งเตือนเฉพาะงานนี้
+  updatedAt?: string;        // วันเวลาที่แก้ไขล่าสุด
 }
 
 export interface Friend {
@@ -375,3 +378,41 @@ export interface ToastItem {
   createdAt: number;
   actionTab?: ActiveTab;
 }
+
+export interface ReminderRule {
+  id: string;
+  days: number;
+  hours: number;
+  minutes?: number;
+  enabled: boolean;
+  label?: string;
+}
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  rules: ReminderRule[];
+  defaultDueTime: string; // e.g. '20:00' or '23:59'
+  notifyHomeworks: boolean;
+  notifyExams: boolean;
+  notifyTodos: boolean;
+  timezoneOffsetMinutes: number;
+  updatedAt: string;
+}
+
+export interface RegisteredPushDevice {
+  endpointHash: string;
+  deviceType: 'ios' | 'android' | 'desktop';
+  deviceLabel: string;
+  createdAt: string;
+  lastSuccessAt?: string;
+}
+
+export interface PushDispatchLogEntry {
+  id: string;
+  title: string;
+  body: string;
+  sentAt: string;
+  successCount: number;
+  failCount: number;
+}
+

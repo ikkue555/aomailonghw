@@ -12,7 +12,9 @@ import {
   Clock,
   ArrowRight,
   ExternalLink,
-  Inbox
+  Inbox,
+  BellRing,
+  Sliders
 } from 'lucide-react';
 import { AppNotification, ActiveTab, NotificationType } from '../types';
 
@@ -25,6 +27,9 @@ interface NotificationBellModalProps {
   onClearAll: () => void;
   onDeleteNotification: (id: string) => void;
   onNavigateTab?: (tab: ActiveTab) => void;
+  isPushEnabled?: boolean;
+  onOpenNotificationSettings?: () => void;
+  onQuickEnablePush?: () => Promise<void> | void;
 }
 
 export const NotificationBellModal: React.FC<NotificationBellModalProps> = ({
@@ -36,8 +41,12 @@ export const NotificationBellModal: React.FC<NotificationBellModalProps> = ({
   onClearAll,
   onDeleteNotification,
   onNavigateTab,
+  isPushEnabled = false,
+  onOpenNotificationSettings,
+  onQuickEnablePush,
 }) => {
   const [filter, setFilter] = useState<'all' | 'unread' | 'urgent'>('all');
+  const [isEnablingQuick, setIsEnablingQuick] = useState(false);
 
   if (!isOpen) return null;
 
@@ -178,6 +187,56 @@ export const NotificationBellModal: React.FC<NotificationBellModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Web Push Settings Shortcut Banner */}
+        {(onOpenNotificationSettings || onQuickEnablePush) && (
+          <div className="px-3.5 sm:px-4 py-2.5 border-b border-slate-150 dark:border-slate-800 bg-sky-50/70 dark:bg-sky-950/20 flex items-center justify-between gap-2">
+            <div className="flex items-center space-x-2 min-w-0">
+              <BellRing className={`w-4 h-4 shrink-0 ${isPushEnabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-sky-600 dark:text-sky-400'}`} />
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                  แจ้งเตือนล่วงหน้าอัตโนมัติ ({isPushEnabled ? 'เปิดอยู่' : 'ยังไม่ได้เปิด'})
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                  ตั้งค่าแจ้งก่อนส่ง 1 วัน / กี่ ชม. บน iOS & Android
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-1.5 shrink-0">
+              {!isPushEnabled && onQuickEnablePush && (
+                <button
+                  type="button"
+                  disabled={isEnablingQuick}
+                  onClick={async () => {
+                    setIsEnablingQuick(true);
+                    try {
+                      await onQuickEnablePush();
+                    } finally {
+                      setIsEnablingQuick(false);
+                    }
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors disabled:opacity-50"
+                >
+                  <BellRing className="w-3 h-3" />
+                  <span>{isEnablingQuick ? 'กำลังเปิด...' : 'เปิดแจ้งเตือนเลย'}</span>
+                </button>
+              )}
+              {onOpenNotificationSettings && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenNotificationSettings();
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors"
+                >
+                  <Sliders className="w-3 h-3" />
+                  <span>ตั้งค่า</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Action Controls & Filter Tabs */}
         <div className="px-3.5 sm:px-4 py-2.5 border-b border-slate-150 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-850/50 gap-2 flex-wrap">

@@ -102,6 +102,22 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "title", "date", "type", "completed"]
+    },
+    "NotificationPreferences": {
+      "title": "NotificationPreferences",
+      "description": "User Web Push notification preferences and reminder lead-time rules",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "rules": { "type": "array" },
+        "defaultDueTime": { "type": "string" },
+        "notifyHomeworks": { "type": "boolean" },
+        "notifyExams": { "type": "boolean" },
+        "notifyTodos": { "type": "boolean" },
+        "timezoneOffsetMinutes": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["enabled", "rules", "defaultDueTime"]
     }
   },
   "firestore": {
@@ -125,9 +141,14 @@
       "schema": "TodoItem",
       "description": "User specific daily to-do items"
     },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": "NotificationPreferences",
+      "description": "User specific notification preferences"
+    },
     "/pr_news/{newsId}": {
       "schema": "PRNewsItem",
       "description": "School wide announcements and news"
     }
   }
 }
+
