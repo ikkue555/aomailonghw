@@ -59,6 +59,7 @@ import {
 import {
   clearPushSessionToken,
   ensureActiveSubscriptionSynced,
+  processLocalDueReminders,
   savePushPreferencesToServer,
   subscribeDeviceToWebPush,
   syncTasksToPushServer
@@ -473,7 +474,26 @@ export default function App() {
   useEffect(() => {
     if (!userProfile || !notificationPrefs.enabled) return;
 
+    const runLocalCheck = () => {
+      void processLocalDueReminders(
+        userProfile.uid,
+        homeworks,
+        exams,
+        todos,
+        notificationPrefs
+      ).then((triggered) => {
+        for (const item of triggered) {
+          addToast(item.title, item.body, 'warning', {
+            actionTab: item.tab,
+            homeworkId: item.homeworkId,
+            duration: 7000,
+          });
+        }
+      });
+    };
+
     const timer = setTimeout(() => {
+      runLocalCheck();
       void syncTasksToPushServer(userProfile.uid, {
         homeworks,
         exams,
@@ -484,8 +504,20 @@ export default function App() {
       });
     }, 800);
 
-    return () => clearTimeout(timer);
-  }, [userProfile, homeworks, exams, todos, notificationPrefs]);
+    const interval = setInterval(runLocalCheck, 30_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        runLocalCheck();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [userProfile, homeworks, exams, todos, notificationPrefs, addToast]);
 
   // Deep-link handling when opening app from a Web Push notification
   useEffect(() => {
@@ -604,7 +636,7 @@ export default function App() {
     }
   };
 
-  // Direct 1-click enable Web Push & trigger browser permission prompt immediately
+  // Direct 1-click enable notifications & trigger browser permission prompt immediately
   const handleQuickEnablePush = async () => {
     if (!userProfile) return;
     try {
@@ -614,11 +646,13 @@ export default function App() {
         timezoneOffsetMinutes: new Date().getTimezoneOffset(),
         updatedAt: new Date().toISOString(),
       };
-      await subscribeDeviceToWebPush(userProfile.uid, nextPrefs);
+      const result = await subscribeDeviceToWebPush(userProfile.uid, nextPrefs);
       await handleUpdateNotificationPrefs(nextPrefs);
       addToast(
         'เปิดรับการแจ้งเตือนสำเร็จ! 🔔',
-        'เซิร์ฟเวอร์จะส่งแจ้งเตือนงานอัตโนมัติแม้ปิดหน้าเว็บ',
+        result.mode === 'webpush'
+          ? 'ระบบพร้อมแจ้งเตือนผ่านเบราว์เซอร์และ Web Push อัตโนมัติ'
+          : 'ระบบพร้อมแจ้งเตือนผ่านเบราว์เซอร์ / Service Worker ตามเวลาที่กำหนดแล้ว',
         'success',
         { recordNotification: false }
       );

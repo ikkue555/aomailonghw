@@ -87,6 +87,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );
   const [hasBrowserSub, setHasBrowserSub] = useState(false);
+  const [vapidAvailable, setVapidAvailable] = useState(false);
 
   const [isSubscribing, setIsSubscribing] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -119,8 +120,9 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
         const serverStatus = await fetchPushStatus(userId);
         setDevices(serverStatus.devices || []);
         setRecentLogs(serverStatus.recentLogs || []);
+        setVapidAvailable(Boolean(serverStatus.vapidAvailable));
       } catch (err) {
-        console.warn('Could not load push status:', err);
+        console.warn('Could not load notification status:', err);
       } finally {
         setIsLoadingStatus(false);
       }
@@ -156,7 +158,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
   if (!isOpen) return null;
 
   const isPushReadyOnDevice =
-    preferences.enabled && hasBrowserSub && permissionState === 'granted';
+    preferences.enabled && permissionState === 'granted';
 
   const handleEnablePush = async () => {
     setStatusError(null);
@@ -168,25 +170,28 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
         timezoneOffsetMinutes: new Date().getTimezoneOffset(),
         updatedAt: new Date().toISOString(),
       };
-      await subscribeDeviceToWebPush(userId, nextPrefs);
+      const result = await subscribeDeviceToWebPush(userId, nextPrefs);
       setPermissionState(
         typeof Notification !== 'undefined' ? Notification.permission : 'granted'
       );
-      setHasBrowserSub(true);
+      setHasBrowserSub(Boolean(result.subscription));
       await onUpdatePreferences(nextPrefs);
 
       const serverStatus = await fetchPushStatus(userId);
       setDevices(serverStatus.devices || []);
       setRecentLogs(serverStatus.recentLogs || []);
+      setVapidAvailable(Boolean(serverStatus.vapidAvailable));
 
       onNotifyToast?.(
-        'เปิดรับการแจ้งเตือนอัตโนมัติสำเร็จ!',
-        'อุปกรณ์นี้ลงทะเบียนรับ Web Push เรียบร้อย เซิร์ฟเวอร์จะส่งแจ้งเตือนให้แม้ปิดหน้าเว็บ',
+        'เปิดรับการแจ้งเตือนสำเร็จ!',
+        result.mode === 'webpush'
+          ? 'ลงทะเบียนรับแจ้งเตือนผ่านเบราว์เซอร์และ Web Push เรียบร้อยแล้ว'
+          : 'เปิดการแจ้งเตือนผ่านเบราว์เซอร์ / Service Worker เรียบร้อยแล้ว',
         'success'
       );
     } catch (err: unknown) {
       const msg =
-        err instanceof Error ? err.message : 'ไม่สามารถเปิดใช้งาน Web Push ได้';
+        err instanceof Error ? err.message : 'ไม่สามารถเปิดใช้งานการแจ้งเตือนได้';
       setStatusError(msg);
       if (typeof Notification !== 'undefined') {
         setPermissionState(Notification.permission);
@@ -234,7 +239,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
         setDelayedCountdown(delaySeconds);
         onNotifyToast?.(
           `ตั้งเวลาทดสอบใน ${delaySeconds} วินาที`,
-          'ลองกดพักหน้าจอมือถือหรือสลับแท็บได้เลย การแจ้งเตือนจะเด้งเข้ามาอัตโนมัติ',
+          'ลองสลับแท็บหรือพักหน้าจอได้เลย การแจ้งเตือนจะแสดงขึ้นมาอัตโนมัติ',
           'info'
         );
       } else {
@@ -348,10 +353,10 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
             </div>
             <div className="min-w-0">
               <h3 className="text-base sm:text-lg font-bold font-heading text-slate-900 dark:text-slate-100 truncate">
-                ตั้งค่าการแจ้งเตือน (Web Push)
+                ตั้งค่าการแจ้งเตือนล่วงหน้า
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                แจ้งเตือนงานอัตโนมัติทั้ง iOS & Android แม้ปิดแท็บหรือพักหน้าจอ
+                แจ้งเตือนงานอัตโนมัติทั้ง iOS & Android ตามเวลาที่กำหนด
               </p>
             </div>
           </div>
@@ -400,7 +405,9 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
                   </div>
                   <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                     {isPushReadyOnDevice
-                      ? 'เซิร์ฟเวอร์จะส่งการแจ้งเตือน (Web Push) ให้ตามเวลาที่กำหนด แม้คุณจะปิดเบราว์เซอร์หรือพักหน้าจอ'
+                      ? hasBrowserSub && vapidAvailable
+                        ? 'ระบบพร้อมแจ้งเตือนผ่านเบราว์เซอร์และ Web Push (VAPID) ตามเวลาที่กำหนด'
+                        : 'ระบบพร้อมแจ้งเตือนผ่านเบราว์เซอร์และ Service Worker ตามเวลาที่กำหนดอัตโนมัติ'
                       : 'กดสวิตช์หรือปุ่มด้านขวา เพื่อให้เว็บขออนุญาตแจ้งเตือนจากเบราว์เซอร์ทันที'}
                   </p>
                 </div>
@@ -480,12 +487,12 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
               </div>
             )}
 
-            {/* iOS Install Guide (Safari 16.4+ requires Home Screen PWA for Web Push) */}
+            {/* iOS Install Guide (Safari 16.4+ requires Home Screen PWA for notifications) */}
             {env.needsIOSInstall && (
               <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-3.5 space-y-2">
                 <div className="flex items-center space-x-2 text-amber-800 dark:text-amber-300 font-bold text-xs">
                   <Share className="w-4 h-4 shrink-0" />
-                  <span>วิธีเปิด Web Push บน iPhone / iPad (iOS 16.4 ขึ้นไป)</span>
+                  <span>วิธีเปิดการแจ้งเตือนบน iPhone / iPad (iOS 16.4 ขึ้นไป)</span>
                 </div>
                 <ol className="text-xs text-amber-900/90 dark:text-amber-200/90 space-y-1 list-decimal list-inside leading-relaxed">
                   <li>
@@ -545,7 +552,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
               <div className="pt-2 border-t border-emerald-200/70 dark:border-emerald-800/50 flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center space-x-1.5">
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>ทดสอบรับแจ้งเตือนจากเซิร์ฟเวอร์:</span>
+                  <span>ทดสอบส่งการแจ้งเตือน:</span>
                 </span>
                 <div className="flex items-center space-x-2">
                   <button
@@ -889,7 +896,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
             {recentLogs.length > 0 && (
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
                 <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block">
-                  ประวัติการส่งจากเซิร์ฟเวอร์ล่าสุด:
+                  ประวัติการแจ้งเตือนล่าสุด:
                 </span>
                 {recentLogs.slice(0, 4).map((log) => (
                   <div
@@ -914,7 +921,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
         {/* Footer */}
         <div className="p-3.5 sm:p-4 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/70 flex items-center justify-between">
           <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            บันทึกการตั้งค่าและซิงค์กับเซิร์ฟเวอร์อัตโนมัติ
+            บันทึกการตั้งค่าลงบัญชีของคุณอัตโนมัติ
           </span>
           <button
             type="button"

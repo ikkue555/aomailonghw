@@ -109,18 +109,46 @@ interface AuthedRequest extends Request {
 }
 
 // ---------------------------------------------------------------------------
-// VAPID & Session Signing Setup (No hardcoded secrets)
+// Optional VAPID Web Push & Session Signing Setup
 // ---------------------------------------------------------------------------
-const envVapidPublic = (process.env.VAPID_PUBLIC_KEY || '').trim();
-const envVapidPrivate = (process.env.VAPID_PRIVATE_KEY || '').trim();
-const vapidSubject = (process.env.VAPID_SUBJECT || 'mailto:admin@homeworkmanager.app').trim();
+function cleanEnvValue(raw: string | undefined): string {
+  return (raw || '').trim().replace(/^(['"])(.*)\1$/, '$2').trim();
+}
 
-const hasEnvVapid = Boolean(envVapidPublic && envVapidPrivate);
-const generatedKeys = hasEnvVapid ? null : webpush.generateVAPIDKeys();
-const VAPID_PUBLIC_KEY = hasEnvVapid ? envVapidPublic : generatedKeys!.publicKey;
-const VAPID_PRIVATE_KEY = hasEnvVapid ? envVapidPrivate : generatedKeys!.privateKey;
+function normalizeVapidSubject(raw: string | undefined): string {
+  const DEFAULT_SUBJECT = 'mailto:admin@homeworkmanager.app';
+  let candidate = cleanEnvValue(raw);
+  if (!candidate) return DEFAULT_SUBJECT;
+  if (!/^(mailto:|https?:\/\/)/i.test(candidate) && candidate.includes('@')) {
+    candidate = `mailto:${candidate}`;
+  }
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol === 'mailto:' || parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return candidate;
+    }
+  } catch {
+    // Fall back to valid mailto URL
+  }
+  return DEFAULT_SUBJECT;
+}
 
-webpush.setVapidDetails(vapidSubject, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+const envVapidPublic = cleanEnvValue(process.env.VAPID_PUBLIC_KEY);
+const envVapidPrivate = cleanEnvValue(process.env.VAPID_PRIVATE_KEY);
+const vapidSubject = normalizeVapidSubject(process.env.VAPID_SUBJECT);
+
+let isVapidConfigured = false;
+const VAPID_PUBLIC_KEY = envVapidPublic;
+
+if (envVapidPublic && envVapidPrivate) {
+  try {
+    webpush.setVapidDetails(vapidSubject, envVapidPublic, envVapidPrivate);
+    isVapidConfigured = true;
+  } catch {
+    console.info('[WebPush] Optional VAPID disabled; using browser/Service Worker notifications.');
+    isVapidConfigured = false;
+  }
+}
 
 const SESSION_SECRET =
   (process.env.SESSION_SECRET || '').trim() || crypto.randomBytes(32).toString('hex');
@@ -453,7 +481,7 @@ async function sendPushToUser(
     homeworkId?: string;
   }
 ): Promise<{ successCount: number; failCount: number }> {
-  if (record.subscriptions.length === 0) {
+  if (!isVapidConfigured || record.subscriptions.length === 0) {
     return { successCount: 0, failCount: 0 };
   }
 
@@ -683,8 +711,9 @@ async function bootstrap(): Promise<void> {
 
   app.get('/api/push/vapid-public-key', (_req, res) => {
     res.json({
-      publicKey: VAPID_PUBLIC_KEY,
-      configuredFromEnv: hasEnvVapid,
+      available: isVapidConfigured,
+      publicKey: isVapidConfigured ? VAPID_PUBLIC_KEY : null,
+      configuredFromEnv: isVapidConfigured,
     });
   });
 
@@ -742,7 +771,8 @@ async function bootstrap(): Promise<void> {
       })),
       preferences: record.preferences,
       recentLogs: record.recentLogs,
-      vapidPublicKey: VAPID_PUBLIC_KEY,
+      vapidAvailable: isVapidConfigured,
+      vapidPublicKey: isVapidConfigured ? VAPID_PUBLIC_KEY : null,
     });
   });
 
@@ -924,8 +954,13 @@ async function bootstrap(): Promise<void> {
   app.post('/api/push/test', requirePushAuth, async (req: AuthedRequest, res) => {
     const uid = req.authUid!;
     const record = getOrCreateUserRecord(uid);
-    if (record.subscriptions.length === 0) {
-      res.status(400).json({ error: 'ยังไม่มีอุปกรณ์ที่ลงทะเบียนรับแจ้งเตือน กรุณากดเปิดรับแจ้งเตือนก่อน' });
+    if (!isVapidConfigured || record.subscriptions.length === 0) {
+      res.json({
+        ok: true,
+        mode: 'local',
+        successCount: 0,
+        message: 'ใช้การแจ้งเตือนผ่านเบราว์เซอร์ / Service Worker แทน',
+      });
       return;
     }
 

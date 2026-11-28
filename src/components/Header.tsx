@@ -601,7 +601,7 @@ export const Header: React.FC<HeaderProps> = ({
                             <BellRing className="w-4 h-4" />
                           </div>
                           <div className="text-left">
-                            <span className="font-heading block">ตั้งค่าการแจ้งเตือน (Web Push)</span>
+                            <span className="font-heading block">ตั้งค่าการแจ้งเตือนล่วงหน้า</span>
                             <span className="text-[10px] text-slate-400 font-normal">แจ้งเตือนอัตโนมัติ iOS & Android</span>
                           </div>
                         </div>
